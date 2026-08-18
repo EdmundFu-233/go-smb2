@@ -1948,7 +1948,14 @@ func (f *File) readdir(pattern string) (fi []os.FileInfo, err error) {
 		return nil, &InvalidResponseError{"broken query directory response format"}
 	}
 
-	output := r.OutputBuffer()
+	return decodeDirectoryEntries(r.OutputBuffer())
+}
+
+func decodeDirectoryEntries(output []byte) (fi []os.FileInfo, err error) {
+	const (
+		fixedEntrySize = uint64(64)
+		entryAlignment = uint64(8)
+	)
 
 	for {
 		info := FileDirectoryInformationDecoder(output)
@@ -1974,6 +1981,16 @@ func (f *File) readdir(pattern string) (fi []os.FileInfo, err error) {
 		next := info.NextEntryOffset()
 		if next == 0 {
 			return fi, nil
+		}
+
+		nextOffset := uint64(next)
+		entrySize := fixedEntrySize + uint64(info.FileNameLength())
+		remaining := uint64(len(output))
+		if nextOffset < entrySize ||
+			nextOffset%entryAlignment != 0 ||
+			nextOffset >= remaining ||
+			remaining-nextOffset < fixedEntrySize {
+			return nil, &InvalidResponseError{"bad directory entry offset"}
 		}
 
 		output = output[next:]

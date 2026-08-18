@@ -3,7 +3,7 @@
 package smb2
 
 import (
-	"github.com/hirochachacha/go-smb2/internal/utf16le"
+	"github.com/EdmundFu-233/go-smb2/internal/utf16le"
 )
 
 const (
@@ -303,7 +303,19 @@ const (
 type FileDirectoryInformationDecoder []byte
 
 func (c FileDirectoryInformationDecoder) IsInvalid() bool {
-	return len(c) < int(64+c.FileNameLength())
+	const fixedSize = 64
+
+	if len(c) < fixedSize {
+		return true
+	}
+
+	fileNameLength := c.FileNameLength()
+	// Protocol Unicode strings consist of 16-bit UTF-16LE code units.
+	if fileNameLength == 0 || fileNameLength%2 != 0 {
+		return true
+	}
+
+	return uint64(len(c)) < fixedSize+uint64(fileNameLength)
 }
 
 func (c FileDirectoryInformationDecoder) NextEntryOffset() uint32 {

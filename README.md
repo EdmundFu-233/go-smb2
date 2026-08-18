@@ -1,23 +1,26 @@
 smb2
 ====
 
-[![Build Status](https://github.com/hirochachacha/go-smb2/actions/workflows/go.yml/badge.svg)](https://github.com/hirochachacha/go-smb2/actions/workflows/go.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/hirochachacha/go-smb2.svg)](https://pkg.go.dev/github.com/hirochachacha/go-smb2)
+[![Build Status](https://github.com/EdmundFu-233/go-smb2/actions/workflows/go.yml/badge.svg)](https://github.com/EdmundFu-233/go-smb2/actions/workflows/go.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/EdmundFu-233/go-smb2.svg)](https://pkg.go.dev/github.com/EdmundFu-233/go-smb2)
 
 Description
 -----------
 
-SMB2/3 client implementation.
+SMB2/3 client implementation. This is the ReCasaOS-maintained fork of
+`github.com/hirochachacha/go-smb2`; see [Security patch provenance](SECURITY_PATCHES.md)
+for its exact baseline, maintained fixes, and dependency boundary. This fork
+requires Go 1.25 or newer and pins Go 1.26.6 for maintained builds.
 
 Installation
 ------------
 
-`go get github.com/hirochachacha/go-smb2`
+`go get github.com/EdmundFu-233/go-smb2`
 
 Documentation
 -------------
 
-http://godoc.org/github.com/hirochachacha/go-smb2
+https://pkg.go.dev/github.com/EdmundFu-233/go-smb2
 
 Examples
 --------
@@ -31,7 +34,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/EdmundFu-233/go-smb2"
 )
 
 func main() {
@@ -75,7 +78,7 @@ import (
 	"io/ioutil"
 	"net"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/EdmundFu-233/go-smb2"
 )
 
 func main() {
@@ -141,7 +144,7 @@ import (
 	"net"
 	"os"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/EdmundFu-233/go-smb2"
 )
 
 func main() {
@@ -198,7 +201,7 @@ import (
 	"net"
 	iofs "io/fs"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/EdmundFu-233/go-smb2"
 )
 
 func main() {

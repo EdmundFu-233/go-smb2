@@ -13,10 +13,11 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/hirochachacha/go-smb2"
+	"github.com/EdmundFu-233/go-smb2"
 
 	"testing"
 )
@@ -84,7 +85,8 @@ func connect(f func()) {
 			goto NO_CONNECTION
 		}
 
-		conn, err := net.Dial(cfg.Transport.Type, fmt.Sprintf("%s:%d", cfg.Transport.Host, cfg.Transport.Port))
+		address := net.JoinHostPort(cfg.Transport.Host, strconv.Itoa(cfg.Transport.Port))
+		conn, err := net.Dial(cfg.Transport.Type, address)
 		if err != nil {
 			panic(err)
 		}
@@ -711,7 +713,8 @@ func TestContextError(t *testing.T) {
 		}
 	}
 
-	conn, err := net.Dial(cfg.Transport.Type, fmt.Sprintf("%s:%d", cfg.Transport.Host, cfg.Transport.Port))
+	address := net.JoinHostPort(cfg.Transport.Host, strconv.Itoa(cfg.Transport.Port))
+	conn, err := net.Dial(cfg.Transport.Type, address)
 	if err != nil {
 		panic(err)
 	}

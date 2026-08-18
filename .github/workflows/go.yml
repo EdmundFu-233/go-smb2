@@ -1,58 +1,189 @@
-on: [push, pull_request]
+name: Go CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  GOTOOLCHAIN: local
+
+concurrency:
+  group: go-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test_linux:
+  integration:
+    name: Integration (${{ matrix.os }}, Go ${{ matrix.go }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
+      fail-fast: false
       matrix:
-        go: [1.11, 1.17]
-    runs-on: ubuntu-latest
+        os:
+          - ubuntu-24.04
+          - windows-2025
+        go:
+          - "1.25.0"
+          - "1.26.6"
     steps:
-    - uses: actions/setup-go@v3
-      with:
-        go-version: ${{ matrix.go }}
-    - uses: actions/checkout@v3
-    - run: |
-        sudo apt install -y samba
-        sudo groupadd smbgroup
-        sudo useradd smbuser -G smbgroup
-        (echo Smbpasswd12345; echo Smbpasswd12345) | sudo smbpasswd -a -s smbuser
-        sudo cp ./.github/smb.conf /etc/samba/smb.conf
-        sudo smbd
-    - uses: actions/cache@v2
-      with:
-        path: |
-          ~/go/pkg/mod
-          ~/.cache/go-build
-          ~/Library/Caches/go-build
-          ~\AppData\Local\go-build
-        key: ${{ runner.os }}-go-${{ matrix.go }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: ${{ runner.os }}-go-${{ matrix.go }}-
-    - run: |
-        cp ./.github/client_conf.json ./
-        go test -v -race ./...
-  test_windows:
-    strategy:
-      matrix:
-        go: [1.11, 1.17]
-    runs-on: windows-latest
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache: false
+
+      - name: Configure the Linux SMB fixture
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test_password='Smbpasswd12345'
+          printf '::add-mask::%s\n' "$test_password"
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get install --yes --no-install-recommends samba
+          sudo groupadd smbgroup
+          sudo useradd smbuser -G smbgroup
+          printf '%s\n%s\n' "$test_password" "$test_password" \
+            | sudo smbpasswd -a -s smbuser
+          sudo install -m 0644 .github/smb.conf /etc/samba/smb.conf
+          sudo smbd
+          cp .github/client_conf.json ./client_conf.json
+
+      - name: Configure the Windows SMB fixture
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testPassword = 'Smbpasswd12345'
+          Write-Output "::add-mask::$testPassword"
+          New-Item -ItemType Directory -Force -Path 'C:\tmp' | Out-Null
+          net user smbuser $testPassword /add
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          net share 'tmp=C:\tmp' '/GRANT:smbuser,FULL'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          net share 'tmp2=C:\tmp' '/GRANT:smbuser,READ'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Copy-Item .github/client_conf.json ./client_conf.json
+
+      - name: Exercise the SMB integration suite
+        run: go test -v -race ./...
+
+  security:
+    name: Security and portability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-    - uses: actions/setup-go@v3
-      with:
-        go-version: ${{ matrix.go }}
-    - uses: actions/checkout@v3
-    - run: |
-        mkdir C:\tmp
-        net user smbuser Smbpasswd12345 /add
-        net share tmp="C:\tmp" /GRANT:smbuser,full
-        net share tmp2="C:\tmp" /GRANT:smbuser,read
-    - uses: actions/cache@v2
-      with:
-        path: |
-          ~/go/pkg/mod
-          ~/.cache/go-build
-          ~/Library/Caches/go-build
-          ~\AppData\Local\go-build
-        key: ${{ runner.os }}-go-${{ matrix.go }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: ${{ runner.os }}-go-${{ matrix.go }}-
-    - run: |
-        cp ./.github/client_conf.json ./
-        go test -v -race ./...
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Go 1.26.6
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.6"
+          cache: false
+
+      - name: Verify module and license boundaries
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          expected_module='github.com/EdmundFu-233/go-smb2'
+          test "$(go list -m -f '{{.Path}}')" = "$expected_module"
+          license_hash="$(sha256sum LICENSE | awk '{print $1}')"
+          test "$license_hash" = \
+            '8b532d93b35ab59ae9b9ccc08aae66f003c1449b1f7a2d12f5900b008dda1415'
+          module_paths="$(go list -m -f '{{.Path}}' all)"
+          for forbidden_module in \
+            github.com/hirochachacha/go-smb2 \
+            github.com/cloudsoda/go-smb2 \
+            github.com/cloudsoda/sddl
+          do
+            if grep -Fqx -- "$forbidden_module" <<<"$module_paths"; then
+              printf 'forbidden module remains in the build list: %s\n' \
+                "$forbidden_module" >&2
+              exit 1
+            fi
+          done
+          test "$(go list -m -f '{{.Version}}' golang.org/x/crypto)" = v0.55.0
+          if go list -deps -test ./... \
+            | grep -Eq '^golang.org/x/crypto/openpgp($|/)'
+          then
+            printf 'forbidden OpenPGP package entered a selected dependency graph\n' >&2
+            exit 1
+          fi
+          go mod tidy -diff
+          go mod verify
+          git diff --exit-code
+
+      - name: Run tests and vet
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Fuzz directory response decoders
+        env:
+          GOMAXPROCS: "2"
+        run: |
+          go test -run '^$' -fuzz '^FuzzDecodeDirectoryEntries$' -fuzztime 10s .
+          go test -run '^$' -fuzz '^FuzzFileDirectoryInformationDecoder$' -fuzztime 10s ./internal/smb2
+          go test -run '^$' -fuzz '^FuzzQueryDirectoryResponseDecoder$' -fuzztime 10s ./internal/smb2
+
+      - name: Install the ARM user-mode emulator
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo env DEBIAN_FRONTEND=noninteractive \
+            apt-get install --yes --no-install-recommends qemu-user-static
+          command -v qemu-arm-static
+
+      - name: Execute 32-bit test binaries
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          CGO_ENABLED=0 GOOS=linux GOARCH=386 \
+            go test -c -o "$RUNNER_TEMP/go-smb2-386.test" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=386 \
+            go test -c -o "$RUNNER_TEMP/internal-smb2-386.test" ./internal/smb2
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+            go test -c -o "$RUNNER_TEMP/go-smb2-armv7.test" .
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+            go test -c -o "$RUNNER_TEMP/internal-smb2-armv7.test" ./internal/smb2
+          "$RUNNER_TEMP/go-smb2-386.test" -test.v
+          "$RUNNER_TEMP/internal-smb2-386.test" -test.v
+          qemu-arm-static "$RUNNER_TEMP/go-smb2-armv7.test" -test.v
+          qemu-arm-static "$RUNNER_TEMP/internal-smb2-armv7.test" -test.v
+
+      - name: Compile supported Linux architectures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          for build_target in amd64 arm64 armv7 riscv64; do
+            case "$build_target" in
+              amd64) target_arch=amd64; target_arm= ;;
+              arm64) target_arch=arm64; target_arm= ;;
+              armv7) target_arch=arm; target_arm=7 ;;
+              riscv64) target_arch=riscv64; target_arm= ;;
+            esac
+            CGO_ENABLED=0 GOOS=linux GOARCH="$target_arch" GOARM="$target_arm" \
+              go build ./...
+          done
+
+      - name: Scan reachable vulnerabilities
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          export GOBIN="$RUNNER_TEMP/govulncheck-bin"
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          "$GOBIN/govulncheck" -show verbose ./...

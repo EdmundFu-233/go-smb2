@@ -1,6 +1,6 @@
 package smb2
 
-import "github.com/hirochachacha/go-smb2/internal/utf16le"
+import "github.com/EdmundFu-233/go-smb2/internal/utf16le"
 
 // ----------------------------------------------------------------------------
 // SMB2 Error Response
@@ -1388,11 +1388,8 @@ func (r QueryDirectoryResponseDecoder) IsInvalid() bool {
 		return true
 	}
 
-	if len(r) < int(uint32(r.OutputBufferOffset())+r.OutputBufferLength())-64 {
-		return true
-	}
-
-	return false
+	_, _, ok := r.outputBufferBounds()
+	return !ok
 }
 
 func (r QueryDirectoryResponseDecoder) StructureSize() uint16 {
@@ -1412,13 +1409,33 @@ func (r QueryDirectoryResponseDecoder) OutputBufferLength() uint32 {
 // }
 
 func (r QueryDirectoryResponseDecoder) OutputBuffer() []byte {
-	off := r.OutputBufferOffset()
-	if off < 64+8 {
+	if r.IsInvalid() {
 		return nil
 	}
-	off -= 64
-	len := r.OutputBufferLength()
-	return r[off : uint32(off)+len]
+
+	start, end, ok := r.outputBufferBounds()
+	if !ok {
+		return nil
+	}
+	return r[int(start):int(end)]
+}
+
+func (r QueryDirectoryResponseDecoder) outputBufferBounds() (start, end uint64, ok bool) {
+	const packetHeaderSize = uint64(64)
+	const responseHeaderSize = uint64(8)
+
+	offset := uint64(r.OutputBufferOffset())
+	if offset < packetHeaderSize+responseHeaderSize {
+		return 0, 0, false
+	}
+
+	start = offset - packetHeaderSize
+	end = start + uint64(r.OutputBufferLength())
+	if start > uint64(len(r)) || end > uint64(len(r)) {
+		return 0, 0, false
+	}
+
+	return start, end, true
 }
 
 // ----------------------------------------------------------------------------

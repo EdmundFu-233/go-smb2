@@ -87,6 +87,14 @@ func (n *Negotiator) makeRequest() (*NegotiateRequest, error) {
 	return req, nil
 }
 
+const minimumNegotiatedPayloadSize uint32 = 64 * 1024
+
+func validNegotiatedPayloadSizes(transact, read, write uint32) bool {
+	return transact >= minimumNegotiatedPayloadSize &&
+		read >= minimumNegotiatedPayloadSize &&
+		write >= minimumNegotiatedPayloadSize
+}
+
 func (n *Negotiator) negotiate(t transport, a *account, ctx context.Context) (*conn, error) {
 	conn := &conn{
 		t:                   t,
@@ -139,12 +147,19 @@ retry:
 		return nil, &InvalidResponseError{"unexpected dialect returned"}
 	}
 
+	maxTransactSize := r.MaxTransactSize()
+	maxReadSize := r.MaxReadSize()
+	maxWriteSize := r.MaxWriteSize()
+	if !validNegotiatedPayloadSizes(maxTransactSize, maxReadSize, maxWriteSize) {
+		return nil, &InvalidResponseError{"invalid negotiated payload size"}
+	}
+
 	conn.requireSigning = n.RequireMessageSigning || r.SecurityMode()&SMB2_NEGOTIATE_SIGNING_REQUIRED != 0
 	conn.capabilities = clientCapabilities & r.Capabilities()
 	conn.dialect = r.DialectRevision()
-	conn.maxTransactSize = r.MaxTransactSize()
-	conn.maxReadSize = r.MaxReadSize()
-	conn.maxWriteSize = r.MaxWriteSize()
+	conn.maxTransactSize = maxTransactSize
+	conn.maxReadSize = maxReadSize
+	conn.maxWriteSize = maxWriteSize
 	conn.sequenceWindow = 1
 
 	// conn.gssNegotiateToken = r.SecurityBuffer()

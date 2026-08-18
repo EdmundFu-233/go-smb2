@@ -1141,43 +1141,27 @@ func (f *File) ReadAt(b []byte, off int64) (n int, err error) {
 const winMaxPayloadSize = 1024 * 1024 // windows system don't accept more than 1M bytes request even though they tell us maxXXXSize > 1M
 const singleCreditMaxPayloadSize = 64 * 1024
 
+func effectiveMaxPayloadSize(size, capabilities uint32) int {
+	limit := uint32(winMaxPayloadSize)
+	if capabilities&SMB2_GLOBAL_CAP_LARGE_MTU == 0 {
+		limit = uint32(singleCreditMaxPayloadSize)
+	}
+	if size > limit {
+		size = limit
+	}
+	return int(size)
+}
+
 func (f *File) maxReadSize() int {
-	size := int(f.fs.maxReadSize)
-	if size > winMaxPayloadSize {
-		size = winMaxPayloadSize
-	}
-	if f.fs.conn.capabilities&SMB2_GLOBAL_CAP_LARGE_MTU == 0 {
-		if size > singleCreditMaxPayloadSize {
-			size = singleCreditMaxPayloadSize
-		}
-	}
-	return size
+	return effectiveMaxPayloadSize(f.fs.maxReadSize, f.fs.conn.capabilities)
 }
 
 func (f *File) maxWriteSize() int {
-	size := int(f.fs.maxWriteSize)
-	if size > winMaxPayloadSize {
-		size = winMaxPayloadSize
-	}
-	if f.fs.conn.capabilities&SMB2_GLOBAL_CAP_LARGE_MTU == 0 {
-		if size > singleCreditMaxPayloadSize {
-			size = singleCreditMaxPayloadSize
-		}
-	}
-	return size
+	return effectiveMaxPayloadSize(f.fs.maxWriteSize, f.fs.conn.capabilities)
 }
 
 func (f *File) maxTransactSize() int {
-	size := int(f.fs.maxTransactSize)
-	if size > winMaxPayloadSize {
-		size = winMaxPayloadSize
-	}
-	if f.fs.conn.capabilities&SMB2_GLOBAL_CAP_LARGE_MTU == 0 {
-		if size > singleCreditMaxPayloadSize {
-			size = singleCreditMaxPayloadSize
-		}
-	}
-	return size
+	return effectiveMaxPayloadSize(f.fs.maxTransactSize, f.fs.conn.capabilities)
 }
 
 func (f *File) readAt(b []byte, off int64) (n int, err error) {
